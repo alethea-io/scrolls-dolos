@@ -1,0 +1,32 @@
+[package]
+name = "scrolls"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.68"
+bytes = "1.5.0"
+clap = { version = "4.4.6", features = ["derive"] }
+config = { version = "0.13.0", default-features = false, features = ["toml", "json"]}
+deno_runtime = "0.129.0"
+futures = "0.3.28"
+gasket = { version = "^0.5", features = ["derive"] }
+hex = "0.4.3"
+indicatif = "0.17.7"
+lazy_static = "1.4.0"
+merge = "0.1.0"
+miette = { version = "5.9.0", features = ["fancy"] }
+pallas = "0.19.0"
+r2d2_redis = "0.14.0"
+serde = "1.0.188"
+serde_json = "1.0.107"
+strum_macros = "0.25.3"
+thiserror = "1.0.30"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1.14"
+tonic = { version = "0.9.2", features = ["tls", "tls-roots"] }
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
+utxorpc = { version = "1.0.0-alpha.1" }

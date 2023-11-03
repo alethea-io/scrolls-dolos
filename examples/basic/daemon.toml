@@ -1,0 +1,18 @@
+[source]
+type = "UtxoRPC"
+url = "http://127.0.0.1:50051"
+
+[intersect]
+type = "Tip"
+
+[[reducers]]
+type = "Rust"
+[[reducers.reducers]]
+name = "BalanceByAddress"
+[[reducers.reducers]]
+name = "BalanceByStakeKey"
+
+[storage]
+type = "Redis"
+url = "redis://localhost:6379"
+stream_name = "my-stream"
