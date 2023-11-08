@@ -380,9 +380,100 @@ impl CRDTCommand {
         let point = Point::Specific(header.slot, header.hash.to_vec());
         CRDTCommand::BlockFinished(point)
     }
+
+    pub fn from_json(value: &JsonValue) -> Result<CRDTCommand, String> {
+        let obj = value.as_object().ok_or("Expected a JSON object")?;
+
+        match obj.get("command").and_then(JsonValue::as_str) {
+            Some("SetAdd") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                Ok(CRDTCommand::SetAdd(set, member))
+            }
+            Some("SetRemove") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                Ok(CRDTCommand::SetRemove(set, member))
+            }
+            Some("SortedSetAdd") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                let delta = extract_delta(obj, "delta")?;
+                Ok(CRDTCommand::SortedSetAdd(set, member, delta))
+            }
+            Some("SortedSetRemove") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                let delta = extract_delta(obj, "delta")?;
+                Ok(CRDTCommand::SortedSetRemove(set, member, delta))
+            }
+            Some("AnyWriteWins") => {
+                let key = extract_string(obj, "key")?;
+                let value = extract_value(obj, "value")?;
+                Ok(CRDTCommand::AnyWriteWins(key, value))
+            }
+            Some("LastWriteWins") => {
+                let key = extract_string(obj, "key")?;
+                let value = extract_value(obj, "value")?;
+                let ts = extract_timestamp(obj, "timestamp")?;
+                Ok(CRDTCommand::LastWriteWins(key, value, ts))
+            }
+            Some("PNCounter") => {
+                let key = extract_string(obj, "key")?;
+                let delta = extract_delta(obj, "value")?;
+                Ok(CRDTCommand::PNCounter(key, delta))
+            }
+            Some("HashCounter") => {
+                let key = extract_string(obj, "key")?;
+                let member = extract_string(obj, "member")?;
+                let delta = extract_delta(obj, "delta")?;
+                Ok(CRDTCommand::HashCounter(key, member, delta))
+            }
+            Some("HashSetValue") => {
+                let key = extract_string(obj, "key")?;
+                let member = extract_string(obj, "member")?;
+                let value = extract_value(obj, "value")?;
+                Ok(CRDTCommand::HashSetValue(key, member, value))
+            }
+            Some("HashUnsetKey") => {
+                let key = extract_string(obj, "key")?;
+                let member = extract_string(obj, "member")?;
+                Ok(CRDTCommand::HashUnsetKey(key, member))
+            }
+            _ => Err("Unknown CRDTCommand".into()),
+        }
+    }
+}
+
+fn extract_string(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<String, String> {
+    obj.get(key)
+        .and_then(JsonValue::as_str)
+        .map(String::from)
+        .ok_or_else(|| format!("Expected a string for key {}", key))
+}
+
+fn extract_delta(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<i64, String> {
+    obj.get(key)
+        .and_then(JsonValue::as_i64)
+        .ok_or_else(|| format!("Expected an integer delta for key {}", key))
+}
+
+fn extract_timestamp(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<u64, String> {
+    obj.get(key)
+        .and_then(JsonValue::as_u64)
+        .ok_or_else(|| format!("Expected a timestamp for key {}", key))
+}
+
+fn extract_value(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<Value, String> {
+    obj.get(key)
+        .cloned()
+        .map(Value::Json)
+        .ok_or_else(|| format!("Expected a value for key {}", key))
 }
 
 pub type SourceOutputPort = gasket::messaging::tokio::OutputPort<ChainEvent>;
+pub type FilterInputPort = gasket::messaging::tokio::InputPort<ChainEvent>;
+pub type FilterOutputPort = gasket::messaging::tokio::OutputPort<ChainEvent>;
 pub type ReducerInputPort = gasket::messaging::tokio::InputPort<ChainEvent>;
 pub type ReducerOutputPort = gasket::messaging::tokio::OutputPort<StorageEvent>;
 pub type StorageInputPort = gasket::messaging::tokio::InputPort<StorageEvent>;

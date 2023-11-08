@@ -25,11 +25,12 @@ impl gasket::framework::Worker<Stage> for Worker {
         stage: &mut Stage,
     ) -> Result<WorkSchedule<ChainEvent>, WorkerError> {
         let msg = stage.input.recv().await.or_panic()?;
+
         Ok(WorkSchedule::Unit(msg.payload))
     }
 
-    async fn execute(&mut self, event: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
-        match event {
+    async fn execute(&mut self, unit: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
+        match unit {
             ChainEvent::Apply(Point::Specific(slot, hash), Record::ParsedBlock(block)) => {
                 stage
                     .output

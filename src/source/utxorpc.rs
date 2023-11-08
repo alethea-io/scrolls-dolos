@@ -31,9 +31,9 @@ impl Worker {
                         Chain::Cardano(block) => {
                             if block.body.is_some() {
                                 let header = block.header.as_ref().unwrap();
-                                info!("{:?}", header.slot);
-                                info!("{:?}", hex::encode(&header.hash));
-                                info!("{:?}", block);
+                                // info!("{:?}", header.slot);
+                                // info!("{:?}", hex::encode(&header.hash));
+                                // info!("{:?}", block);
                                 let evt = ChainEvent::Apply(
                                     Point::Specific(header.slot, header.hash.to_vec()),
                                     Record::ParsedBlock(block.clone()),

@@ -1,1 +1,1 @@
-cargo run --bin scrolls -- daemon --config ./daemon.toml
+cargo run --bin scrolls -- daemon --config ./examples/basic/daemon.toml

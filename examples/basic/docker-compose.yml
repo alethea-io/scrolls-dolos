@@ -1,4 +1,5 @@
 version: "3"
+
 services:
   redis:
     image: redis
@@ -9,3 +10,18 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
+  
+  postgres:
+    image: postgres
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: scrolls
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d scrolls"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
