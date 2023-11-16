@@ -14,6 +14,7 @@ use utxorpc::proto::sync::v1::follow_tip_response::Action;
 use utxorpc::proto::sync::v1::{BlockRef, DumpHistoryRequest, FollowTipRequest, FollowTipResponse};
 
 use crate::framework::*;
+use serde_json::json;
 
 pub struct Worker {
     client: ChainSyncServiceClient<Channel>,
@@ -33,7 +34,7 @@ impl Worker {
                                 let header = block.header.as_ref().unwrap();
                                 // info!("{:?}", header.slot);
                                 // info!("{:?}", hex::encode(&header.hash));
-                                // info!("{:?}", block);
+                                info!("{:?}", json!(block));
                                 let evt = ChainEvent::Apply(
                                     Point::Specific(header.slot, header.hash.to_vec()),
                                     Record::ParsedBlock(block.clone()),

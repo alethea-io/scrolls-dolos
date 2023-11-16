@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::{collections::VecDeque, time::Duration};
 use tracing::{info, warn};
 
-use scrolls::{framework::*, reducers, source, storage};
+use scrolls::{framework::*, reduce, source, storage};
 
 use crate::console;
 
@@ -11,7 +11,7 @@ use crate::console;
 pub struct ConfigRoot {
     intersect: IntersectConfig,
     source: source::Config,
-    reducers: Vec<reducers::Config>,
+    reduce: reduce::Config,
     storage: storage::Config,
     chain: Option<ChainConfig>,
     finalize: Option<FinalizeConfig>,
@@ -42,14 +42,14 @@ impl ConfigRoot {
 
 struct Runtime {
     source: Tether,
-    reducers: Vec<Tether>,
+    reduce: Tether,
     storage: Tether,
 }
 
 impl Runtime {
     fn all_tethers(&self) -> impl Iterator<Item = &Tether> {
         std::iter::once(&self.source)
-            .chain(self.reducers.iter())
+            .chain(std::iter::once(&self.reduce))
             .chain(std::iter::once(&self.storage))
     }
 
@@ -100,43 +100,34 @@ fn define_gasket_policy(config: Option<&gasket::retries::Policy>) -> gasket::run
 
 fn chain_stages<'a>(
     source: &'a mut dyn StageBootstrapper<ChainEvent, ChainEvent>,
-    reducers: Vec<&'a mut dyn StageBootstrapper<ChainEvent, StorageEvent>>,
+    reduce: &'a mut dyn StageBootstrapper<ChainEvent, StorageEvent>,
     storage: &'a mut dyn StageBootstrapper<StorageEvent, StorageEvent>,
 ) {
-    let (to_reducers, from_source) = gasket::messaging::tokio::broadcast_channel(1000);
-    let (to_storage, from_reducers) = gasket::messaging::tokio::mpsc_channel(1000);
+    let (to_process, from_source) = gasket::messaging::tokio::mpsc_channel(1000);
+    source.connect_output(to_process);
+    reduce.connect_input(from_source);
 
-    for reducer in reducers {
-        source.connect_output(to_reducers.clone());
-        reducer.connect_input(from_source.clone());
-        reducer.connect_output(to_storage.clone());
-    }
-
-    storage.connect_input(from_reducers);
+    let (to_storage, from_process) = gasket::messaging::tokio::mpsc_channel(1000);
+    reduce.connect_output(to_storage);
+    storage.connect_input(from_process);
 }
 
 fn bootstrap(
     mut source: source::Bootstrapper,
-    mut reducers: Vec<reducers::Bootstrapper>,
+    mut reduce: reduce::Bootstrapper,
     mut storage: storage::Bootstrapper,
     policy: gasket::runtime::Policy,
 ) -> Result<Runtime, Error> {
     chain_stages(
         &mut source,
-        reducers
-            .iter_mut()
-            .map(|x| x as &mut dyn StageBootstrapper<ChainEvent, StorageEvent>)
-            .collect::<Vec<_>>(),
+        &mut reduce,
         &mut storage,
     );
 
     let runtime = Runtime {
         source: source.spawn(policy.clone()),
-        reducers: reducers
-            .into_iter()
-            .map(|x| x.spawn(policy.clone()))
-            .collect(),
-        storage: storage.spawn(policy),
+        reduce: reduce.spawn(policy.clone()),
+        storage: storage.spawn(policy.clone()),
     };
 
     Ok(runtime)
@@ -164,17 +155,11 @@ pub fn run(args: &Args) -> Result<(), Error> {
     };
 
     let source = config.source.bootstrapper(&ctx)?;
-
-    let reducers = config
-        .reducers
-        .into_iter()
-        .map(|x| x.bootstrapper(&ctx))
-        .collect::<Result<_, _>>()?;
-
+    let reduce = config.reduce.bootstrapper(&ctx)?;
     let storage = config.storage.bootstrapper(&ctx)?;
 
     let retries = define_gasket_policy(config.retries.as_ref());
-    let runtime = bootstrap(source, reducers, storage, retries)?;
+    let runtime = bootstrap(source, reduce, storage, retries)?;
 
     info!("scrolls is running...");
 

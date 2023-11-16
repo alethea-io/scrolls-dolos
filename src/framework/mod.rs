@@ -14,7 +14,6 @@ pub use pallas::ledger::traverse::wellknown::GenesisValues;
 
 pub mod cursor;
 pub mod errors;
-pub mod legacy_v1;
 
 pub use cursor::*;
 pub use errors::*;
@@ -62,7 +61,6 @@ pub enum Record {
     CborBlock(Vec<u8>),
     CborTx(Vec<u8>),
     GenericJson(JsonValue),
-    OuraV1Event(legacy_v1::Event),
     ParsedTx(Tx),
     ParsedBlock(Block),
 }
@@ -73,7 +71,6 @@ impl From<Record> for JsonValue {
             Record::CborBlock(x) => json!({ "hex": hex::encode(x) }),
             Record::CborTx(x) => json!({ "hex": hex::encode(x) }),
             Record::ParsedTx(x) => json!(x),
-            Record::OuraV1Event(x) => json!(x),
             Record::GenericJson(x) => x,
             Record::ParsedBlock(x) => json!(x),
         }
@@ -199,6 +196,7 @@ impl From<ChainEvent> for JsonValue {
 #[derive(Clone, Debug)]
 pub enum StorageEvent {
     CRDT(CRDTCommand),
+    RDBMS(RDBMSCommand)
 }
 
 pub type Set = String;
@@ -471,13 +469,17 @@ fn extract_value(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<
         .ok_or_else(|| format!("Expected a value for key {}", key))
 }
 
-pub type SourceOutputPort = gasket::messaging::tokio::OutputPort<ChainEvent>;
-pub type FilterInputPort = gasket::messaging::tokio::InputPort<ChainEvent>;
-pub type FilterOutputPort = gasket::messaging::tokio::OutputPort<ChainEvent>;
-pub type ReducerInputPort = gasket::messaging::tokio::InputPort<ChainEvent>;
-pub type ReducerOutputPort = gasket::messaging::tokio::OutputPort<StorageEvent>;
-pub type StorageInputPort = gasket::messaging::tokio::InputPort<StorageEvent>;
+#[derive(Clone, Debug)]
+pub enum RDBMSCommand {
+    BlockStarting(Point),
+    ExecuteSQL(String),
+    BlockFinished(Point),
+}
 
+pub type SourceOutputPort = gasket::messaging::tokio::OutputPort<ChainEvent>;
+pub type ReduceInputPort = gasket::messaging::tokio::InputPort<ChainEvent>;
+pub type ReduceOutputPort = gasket::messaging::tokio::OutputPort<StorageEvent>;
+pub type StorageInputPort = gasket::messaging::tokio::InputPort<StorageEvent>;
 pub type InputAdapter<I> = gasket::messaging::tokio::ChannelRecvAdapter<I>;
 pub type OutputAdapter<O> = gasket::messaging::tokio::ChannelSendAdapter<O>;
 
@@ -485,20 +487,6 @@ pub trait StageBootstrapper<I, O> {
     fn connect_input(&mut self, adapter: InputAdapter<I>);
     fn connect_output(&mut self, adapter: OutputAdapter<O>);
     fn spawn(self, policy: gasket::runtime::Policy) -> gasket::runtime::Tether;
-}
-
-pub trait ReducerTrait {
-    fn apply(
-        &mut self,
-        block: Block,
-        output: &mut ReducerOutputPort,
-    ) -> Result<(), gasket::error::Error>;
-
-    fn undo(
-        &mut self,
-        block: Block,
-        output: &mut ReducerOutputPort,
-    ) -> Result<(), gasket::error::Error>;
 }
 
 #[derive(Debug, Deserialize, Clone)]

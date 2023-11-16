@@ -167,6 +167,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                     }
                 };
             }
+            _ => {}
         }
 
         Ok(())
