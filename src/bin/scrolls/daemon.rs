@@ -118,11 +118,7 @@ fn bootstrap(
     mut storage: storage::Bootstrapper,
     policy: gasket::runtime::Policy,
 ) -> Result<Runtime, Error> {
-    chain_stages(
-        &mut source,
-        &mut reduce,
-        &mut storage,
-    );
+    chain_stages(&mut source, &mut reduce, &mut storage);
 
     let runtime = Runtime {
         source: source.spawn(policy.clone()),

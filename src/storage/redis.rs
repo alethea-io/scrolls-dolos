@@ -1,13 +1,14 @@
-use std::ops::DerefMut;
-
 use gasket::framework::*;
 use pallas::network::miniprotocols::Point;
-use r2d2_redis::{
-    r2d2::{self, Pool},
-    redis::{self, Commands, RedisWrite, ToRedisArgs},
-    RedisConnectionManager,
-};
+use r2d2_redis::r2d2;
+use r2d2_redis::r2d2::Pool;
+use r2d2_redis::redis;
+use r2d2_redis::redis::Commands;
+use r2d2_redis::redis::RedisWrite;
+use r2d2_redis::redis::ToRedisArgs;
+use r2d2_redis::RedisConnectionManager;
 use serde::Deserialize;
+use std::ops::DerefMut;
 use tracing;
 
 use crate::framework::*;

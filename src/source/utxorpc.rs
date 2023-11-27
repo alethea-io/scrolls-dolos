@@ -34,7 +34,7 @@ impl Worker {
                                 let header = block.header.as_ref().unwrap();
                                 // info!("{:?}", header.slot);
                                 // info!("{:?}", hex::encode(&header.hash));
-                                info!("{:?}", json!(block));
+                                // info!("{:?}", json!(block));
                                 let evt = ChainEvent::Apply(
                                     Point::Specific(header.slot, header.hash.to_vec()),
                                     Record::ParsedBlock(block.clone()),

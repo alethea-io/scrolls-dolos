@@ -1,13 +1,15 @@
-use deno_runtime::deno_core::{self, op2, ModuleSpecifier, OpState};
+use deno_runtime::deno_core;
+use deno_runtime::deno_core::op2;
+use deno_runtime::deno_core::ModuleSpecifier;
+use deno_runtime::deno_core::OpState;
 use deno_runtime::permissions::PermissionsContainer;
-use deno_runtime::worker::{MainWorker as DenoWorker, WorkerOptions};
+use deno_runtime::worker::MainWorker as DenoWorker;
+use deno_runtime::worker::WorkerOptions;
 use gasket::framework::*;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use crate::framework::*;
-
-pub type WrappedRuntime = DenoWorker;
 
 deno_core::extension!(deno_filter, ops = [op_pop_record, op_put_record]);
 
@@ -32,7 +34,7 @@ pub fn op_put_record(
     Ok(())
 }
 
-async fn setup_deno(deps: &PathBuf, reducers: &[PathBuf]) -> DenoWorker {
+async fn setup_deno(reducers: &[PathBuf]) -> DenoWorker {
     let empty_module = deno_core::ModuleSpecifier::parse("data:text/javascript;base64,").unwrap();
 
     let mut worker = DenoWorker::bootstrap_from_options(
@@ -74,7 +76,7 @@ async fn setup_deno(deps: &PathBuf, reducers: &[PathBuf]) -> DenoWorker {
 }
 
 pub struct Worker {
-    runtime: WrappedRuntime,
+    runtime: DenoWorker,
     modules: Vec<ModuleSpecifier>,
 }
 
@@ -114,7 +116,6 @@ impl Worker {
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let deps = &stage.deps;
         let reducers = &stage.reducers;
         let modules: Vec<ModuleSpecifier> = reducers
             .iter()
@@ -124,7 +125,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             .collect();
 
         // Setup Deno runtime and load modules
-        let runtime = setup_deno(deps, reducers).await;
+        let runtime = setup_deno(reducers).await;
 
         Ok(Self { runtime, modules })
     }
@@ -212,7 +213,6 @@ impl gasket::framework::Worker<Stage> for Worker {
 #[derive(Stage)]
 #[stage(name = "reduce-deno", unit = "ChainEvent", worker = "Worker")]
 pub struct Stage {
-    deps: PathBuf,
     reducers: Vec<PathBuf>,
 
     pub input: ReduceInputPort,
@@ -224,14 +224,12 @@ pub struct Stage {
 
 #[derive(Deserialize)]
 pub struct Config {
-    deps: String,
     reducers: Vec<String>,
 }
 
 impl Config {
     pub fn bootstrapper(self, _ctx: &Context) -> Result<Stage, Error> {
         let stage = Stage {
-            deps: PathBuf::from(self.deps),
             reducers: self.reducers.iter().map(PathBuf::from).collect(),
             input: Default::default(),
             output: Default::default(),

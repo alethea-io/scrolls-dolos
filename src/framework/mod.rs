@@ -196,7 +196,7 @@ impl From<ChainEvent> for JsonValue {
 #[derive(Clone, Debug)]
 pub enum StorageEvent {
     CRDT(CRDTCommand),
-    RDBMS(RDBMSCommand)
+    RDBMS(RDBMSCommand),
 }
 
 pub type Set = String;

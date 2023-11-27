@@ -19,6 +19,7 @@ lazy_static = "1.4.0"
 merge = "0.1.0"
 miette = { version = "5.9.0", features = ["fancy"] }
 pallas = "0.19.0"
+r2d2_postgres = "0.18.1"
 r2d2_redis = "0.14.0"
 serde = "1.0.188"
 serde_json = "1.0.107"

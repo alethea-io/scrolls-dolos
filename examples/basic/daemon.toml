@@ -7,10 +7,10 @@ type = "Tip"
 
 [reduce]
 type = "Deno"
-deps = "/home/aleksandar/Projects/scrolls/scrolls/src/reduce/deno/deps.js"
+deps = "/home/aleksandar/Projects/scrolls/scrolls/src/reduce/deno/deps.ts"
 reducers = [
-    "/home/aleksandar/Projects/scrolls/scrolls/src/reduce/deno/balance_by_address.js",
-    "/home/aleksandar/Projects/scrolls/scrolls/src/reduce/deno/balance_by_stake_key.js",
+    "/home/aleksandar/Projects/scrolls/scrolls/src/reduce/deno/reducers/lib/balance_by_address.js",
+    "/home/aleksandar/Projects/scrolls/scrolls/src/reduce/deno/reducers/lib/balance_by_stake_key.js",
 ]
 
 [storage]
