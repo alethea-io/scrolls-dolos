@@ -1,3 +1,4 @@
+use deno_core::error::AnyError;
 use deno_runtime::deno_core;
 use deno_runtime::deno_core::op2;
 use deno_runtime::deno_core::ModuleSpecifier;
@@ -7,15 +8,25 @@ use deno_runtime::worker::MainWorker as DenoWorker;
 use deno_runtime::worker::WorkerOptions;
 use gasket::framework::*;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::framework::*;
 
-deno_core::extension!(deno_filter, ops = [op_pop_record, op_put_record]);
+deno_core::extension!(
+    deno_filter,
+    ops = [
+        op_pop_record,
+        op_put_record,
+        op_read_file,
+        op_write_file,
+        op_remove_file
+    ]
+);
 
 #[op2]
 #[serde]
-pub fn op_pop_record(state: &mut OpState) -> Result<serde_json::Value, deno_core::error::AnyError> {
+pub fn op_pop_record(state: &mut OpState) -> Result<serde_json::Value, AnyError> {
     let r: Record = state.take();
     let j = serde_json::Value::from(r);
     Ok(j)
@@ -25,7 +36,7 @@ pub fn op_pop_record(state: &mut OpState) -> Result<serde_json::Value, deno_core
 pub fn op_put_record(
     state: &mut OpState,
     #[serde] value: serde_json::Value,
-) -> Result<(), deno_core::error::AnyError> {
+) -> Result<(), AnyError> {
     match value {
         serde_json::Value::Null => (),
         _ => state.put(value),
@@ -34,70 +45,86 @@ pub fn op_put_record(
     Ok(())
 }
 
-async fn setup_deno(reducers: &[PathBuf]) -> DenoWorker {
+#[op2(async)]
+#[string]
+async fn op_read_file(#[string] path: String) -> Result<String, AnyError> {
+    let contents = tokio::fs::read_to_string(path).await?;
+    Ok(contents)
+}
+
+#[op2(async)]
+async fn op_write_file(#[string] path: String, #[string] contents: String) -> Result<(), AnyError> {
+    tokio::fs::write(path, contents).await?;
+    Ok(())
+}
+
+#[op2(fast)]
+fn op_remove_file(#[string] path: String) -> Result<(), AnyError> {
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
+async fn setup_deno(main_module: &PathBuf) -> DenoWorker {
     let empty_module = deno_core::ModuleSpecifier::parse("data:text/javascript;base64,").unwrap();
 
-    let mut worker = DenoWorker::bootstrap_from_options(
+    let mut deno = DenoWorker::bootstrap_from_options(
         empty_module,
         PermissionsContainer::allow_all(),
         WorkerOptions {
+            module_loader: Rc::new(deno_core::FsModuleLoader),
             extensions: vec![deno_filter::init_ops()],
             ..Default::default()
         },
     );
 
-    for reducer in reducers {
-        let file_specifier = format!("file://{}", reducer.display());
-        let file_stem = reducer
-            .file_stem()
-            .and_then(|os_str| os_str.to_str())
-            .unwrap();
+    let module_code = deno_core::FastString::from(std::fs::read_to_string(main_module).unwrap());
 
-        let module_code = deno_core::FastString::from(std::fs::read_to_string(reducer).unwrap());
-        let module_specifier = ModuleSpecifier::parse(&file_specifier).unwrap();
+    deno.js_runtime
+        .load_side_module(
+            &ModuleSpecifier::from_file_path(main_module).unwrap(),
+            Some(module_code),
+        )
+        .await
+        .unwrap();
 
-        worker
-            .js_runtime
-            .load_side_module(&module_specifier, Some(module_code))
-            .await
-            .unwrap();
+    let runtime_js = format!(
+        r#"
+        import("file://{}").then(({{ apply, undo }}) => {{
+            globalThis.scrolls = {{
+                apply: apply,
+                undo: undo,
+            }}
+        }});
+        "#,
+        main_module.clone().display().to_string()
+    );
 
-        let runtime_code = deno_core::FastString::from(format!(
-            r#"import("{}").then(({{ apply, undo }}) => {{globalThis["{}_apply"] = apply; globalThis["{}_undo"] = undo;}});"#,
-            file_specifier, file_stem, file_stem
-        ));
+    let runtime_code = deno_core::FastString::from(runtime_js);
 
-        let res = worker.execute_script("[runtime.js]", runtime_code);
-        worker.run_event_loop(false).await.unwrap();
-        res.unwrap();
-    }
+    let res = deno.execute_script("[scrolls:runtime.js]", runtime_code);
+    deno.run_event_loop(false).await.unwrap();
+    res.unwrap();
 
-    worker
+    deno
 }
 
 pub struct Worker {
     runtime: DenoWorker,
-    modules: Vec<ModuleSpecifier>,
 }
 
 impl Worker {
     async fn reduce(
         &mut self,
-        module: ModuleSpecifier,
         method: &str,
         record: Record,
     ) -> Result<Option<serde_json::Value>, String> {
         let deno = &mut self.runtime;
+
         deno.js_runtime.op_state().borrow_mut().put(record);
 
-        let file_stem = Path::new(module.path())
-            .file_stem()
-            .and_then(|os_str| os_str.to_str())
-            .unwrap();
-
         let script = format!(
-            r#"Deno[Deno.internal].core.ops.op_put_record({}_{}(Deno[Deno.internal].core.ops.op_pop_record()));"#,
-            file_stem, method
+            r#"Deno[Deno.internal].core.ops.op_put_record(scrolls.{}(Deno[Deno.internal].core.ops.op_pop_record()));"#,
+            method
         );
 
         let script = deno_core::FastString::from(script);
@@ -116,18 +143,9 @@ impl Worker {
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let reducers = &stage.reducers;
-        let modules: Vec<ModuleSpecifier> = reducers
-            .iter()
-            .map(|reducer| {
-                ModuleSpecifier::parse(&format!("file://{}", reducer.display())).unwrap()
-            })
-            .collect();
+        let runtime = setup_deno(&stage.main_module).await;
 
-        // Setup Deno runtime and load modules
-        let runtime = setup_deno(reducers).await;
-
-        Ok(Self { runtime, modules })
+        Ok(Self { runtime })
     }
 
     async fn schedule(
@@ -140,8 +158,6 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn execute(&mut self, unit: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
-        let modules = self.modules.clone();
-
         match unit {
             ChainEvent::Apply(_, record) | ChainEvent::Undo(_, record) => {
                 let block = if let Record::ParsedBlock(block) = record {
@@ -164,35 +180,33 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .await
                     .or_panic()?;
 
-                for module in modules {
-                    let reduced = self.reduce(module, method, record.clone()).await.unwrap();
+                let reduced = self.reduce(method, record.clone()).await.unwrap();
 
-                    if let Some(reduced) = reduced {
-                        match reduced {
-                            serde_json::Value::Array(items) => {
-                                for item in items {
-                                    stage
-                                        .output
-                                        .send(gasket::messaging::Message::from(StorageEvent::CRDT(
-                                            CRDTCommand::from_json(&item).unwrap(),
-                                        )))
-                                        .await
-                                        .or_panic()?;
-                                }
-                            }
-                            _ => {
+                if let Some(reduced) = reduced {
+                    match reduced {
+                        serde_json::Value::Array(items) => {
+                            for item in items {
                                 stage
                                     .output
                                     .send(gasket::messaging::Message::from(StorageEvent::CRDT(
-                                        CRDTCommand::from_json(&reduced).unwrap(),
+                                        CRDTCommand::from_json(&item).unwrap(),
                                     )))
                                     .await
                                     .or_panic()?;
                             }
                         }
-
-                        stage.ops_count.inc(1);
+                        _ => {
+                            stage
+                                .output
+                                .send(gasket::messaging::Message::from(StorageEvent::CRDT(
+                                    CRDTCommand::from_json(&reduced).unwrap(),
+                                )))
+                                .await
+                                .or_panic()?;
+                        }
                     }
+
+                    stage.ops_count.inc(1);
                 }
 
                 stage
@@ -213,7 +227,8 @@ impl gasket::framework::Worker<Stage> for Worker {
 #[derive(Stage)]
 #[stage(name = "reduce-deno", unit = "ChainEvent", worker = "Worker")]
 pub struct Stage {
-    reducers: Vec<PathBuf>,
+    main_module: PathBuf,
+    storage_event: String,
 
     pub input: ReduceInputPort,
     pub output: ReduceOutputPort,
@@ -224,13 +239,15 @@ pub struct Stage {
 
 #[derive(Deserialize)]
 pub struct Config {
-    reducers: Vec<String>,
+    main_module: String,
+    storage: String,
 }
 
 impl Config {
     pub fn bootstrapper(self, _ctx: &Context) -> Result<Stage, Error> {
         let stage = Stage {
-            reducers: self.reducers.iter().map(PathBuf::from).collect(),
+            main_module: PathBuf::from(self.main_module),
+            storage_event: self.storage,
             input: Default::default(),
             output: Default::default(),
             ops_count: Default::default(),

@@ -4,6 +4,7 @@ use pallas::network::miniprotocols::Point;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 // we use UtxoRpc as our canonical representation of a Block and Tx
 pub use utxorpc::proto::cardano::v1::Block;
@@ -451,9 +452,17 @@ fn extract_string(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result
 }
 
 fn extract_delta(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<i64, String> {
-    obj.get(key)
-        .and_then(JsonValue::as_i64)
-        .ok_or_else(|| format!("Expected an integer delta for key {}", key))
+    match obj.get(key) {
+        Some(JsonValue::Number(num)) if num.is_i64() => num
+            .as_i64()
+            .ok_or_else(|| format!("Expected an integer delta for key {}", key)),
+        Some(JsonValue::String(s)) => i64::from_str(s)
+            .map_err(|_| format!("Failed to parse stringified integer for key {}", key)),
+        _ => Err(format!(
+            "Expected an integer or stringified integer delta for key {}",
+            key
+        )),
+    }
 }
 
 fn extract_timestamp(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<u64, String> {

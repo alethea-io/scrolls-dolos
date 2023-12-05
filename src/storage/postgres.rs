@@ -15,7 +15,7 @@ pub struct Worker {
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let manager = PostgresConnectionManager::new(stage.config.url.parse().or_panic()?, NoTls);
+        let manager = PostgresConnectionManager::new(stage.url.parse().or_panic()?, NoTls);
         let pool = r2d2::Pool::builder().build(manager).or_panic()?;
 
         Ok(Self { pool })
@@ -65,11 +65,12 @@ impl gasket::framework::Worker<Stage> for Worker {
 #[derive(Stage)]
 #[stage(name = "storage-postgres", unit = "StorageEvent", worker = "Worker")]
 pub struct Stage {
+    url: String,
+
     pub input: StorageInputPort,
 
-    config: Config,
     cursor: Cursor,
-
+    
     #[metric]
     ops_count: gasket::metrics::Counter,
 
@@ -86,8 +87,8 @@ impl Config {
     pub fn bootstrapper(self, ctx: &Context) -> Result<Stage, Error> {
         let stage = Stage {
             input: Default::default(),
-            config: self,
             cursor: ctx.cursor.clone(),
+            url: self.url,
             ops_count: Default::default(),
             latest_block: Default::default(),
         };

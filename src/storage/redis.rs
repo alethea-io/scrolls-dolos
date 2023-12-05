@@ -43,7 +43,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             .config
             .stream_name
             .clone()
-            .unwrap_or(String::from("scrolls-sink"));
+            .unwrap_or(String::from("scrolls-redis-storage"));
 
         let maxlen = stage.config.stream_max_length;
 

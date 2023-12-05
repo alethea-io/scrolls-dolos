@@ -1,0 +1,15 @@
+[source]
+type = "UtxoRPC"
+url = "http://127.0.0.1:50051"
+
+[intersect]
+type = "Tip"
+
+[reduce]
+type = "Deno"
+main_module = "/home/aleksandar/Projects/scrolls/examples/rdbms/reducers/dist/mod.js"
+storage = "RDBMS"
+
+[storage]
+type = "Postgres"
+url = "postgresql://postgres:password@localhost:5432/scrolls"

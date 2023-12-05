@@ -1,0 +1,16 @@
+[source]
+type = "UtxoRPC"
+url = "http://127.0.0.1:50051"
+
+[intersect]
+type = "Tip"
+
+[reduce]
+type = "Deno"
+main_module = "/home/aleksandar/Projects/scrolls/examples/crdt/reducers/dist/mod.js"
+storage = "CRDT"
+
+[storage]
+type = "Redis"
+url = "redis://localhost:6379"
+stream_name = "scrolls-redis-storage"
