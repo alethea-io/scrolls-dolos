@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a prototype implementation of the Scrolls indexer with several desirable features.
+This is a prototype implementation of the Scrolls indexer with several new features.
 
 ### 1. Integration with the Dolos data node
 
