@@ -3754,52 +3754,60 @@ function processTxOutput(txOuput, action) {
       break;
   }
   return {
-    command: "PNCounter",
     key: addressString,
-    // Must stringify to return bigint to rust
-    value: value.toString()
+    value
   };
 }
-function apply(blockJson) {
+function processBlock(blockJson, config, applyOrUndo) {
   const block = Block.fromJson(blockJson);
-  const commands = [];
+  const deltas = {};
   for (const tx of block.body?.tx ?? []) {
     for (const txOutput of tx.outputs) {
-      const command = processTxOutput(txOutput, "produce" /* Produce */);
-      commands.push(command);
-    }
-    for (const txInput of tx.inputs) {
-      const txOuput = txInput.asOutput;
-      if (txOuput) {
-        const command = processTxOutput(txOuput, "consume" /* Consume */);
-        commands.push(command);
+      const action = applyOrUndo == "apply" ? "produce" /* Produce */ : "consume" /* Consume */;
+      const delta = processTxOutput(txOutput, action);
+      if (delta && delta.key in deltas) {
+        deltas[delta.key] += delta.value;
+      } else if (delta && !(delta.key in deltas)) {
+        deltas[delta.key] = delta.value;
       }
     }
+    for (const txInput of tx.inputs) {
+      const txOutput = txInput.asOutput;
+      if (txOutput) {
+        const action = applyOrUndo == "apply" ? "consume" /* Consume */ : "produce" /* Produce */;
+        const delta = processTxOutput(txOutput, action);
+        if (delta && delta.key in deltas) {
+          deltas[delta.key] += delta.value;
+        } else if (delta && !(delta.key in deltas)) {
+          deltas[delta.key] = delta.value;
+        }
+      }
+    }
+  }
+  const commands = [];
+  for (const [key, value] of Object.entries(deltas)) {
+    commands.push({
+      command: "ExecuteSQL",
+      sql: `
+        INSERT INTO ${config.table} (address, balance)
+        VALUES ('${key}', ${value})
+        ON CONFLICT (address) DO UPDATE SET
+        balance = ${config.table}.balance + EXCLUDED.balance;
+        `
+    });
   }
   return commands;
 }
-function undo(blockJson) {
-  const block = Block.fromJson(blockJson);
-  const commands = [];
-  for (const tx of block.body?.tx ?? []) {
-    for (const txOutput of tx.outputs) {
-      const command = processTxOutput(txOutput, "consume" /* Consume */);
-      commands.push(command);
-    }
-    for (const txInput of tx.inputs) {
-      const txOuput = txInput.asOutput;
-      if (txOuput) {
-        const command = processTxOutput(txOuput, "produce" /* Produce */);
-        commands.push(command);
-      }
-    }
-  }
-  return commands;
+function apply(blockJson, config) {
+  return processBlock(blockJson, config, "apply");
+}
+function undo(blockJson, config) {
+  return processBlock(blockJson, config, "undo");
 }
 
-// src/balance_by_stake_key.ts
-var balance_by_stake_key_exports = {};
-__export(balance_by_stake_key_exports, {
+// src/balance_by_stake_address.ts
+var balance_by_stake_address_exports = {};
+__export(balance_by_stake_address_exports, {
   apply: () => apply2,
   undo: () => undo2
 });
@@ -3823,67 +3831,80 @@ function processTxOutput2(txOuput, action) {
       break;
   }
   return {
-    command: "PNCounter",
     key: stakeAddressString,
-    // Must stringify to return bigint to rust
-    value: value.toString()
+    value
   };
 }
-function apply2(blockJson) {
+function processBlock2(blockJson, config, applyOrUndo) {
   const block = Block.fromJson(blockJson);
-  const commands = [];
+  const deltas = {};
   for (const tx of block.body?.tx ?? []) {
     for (const txOutput of tx.outputs) {
-      const command = processTxOutput2(txOutput, "produce" /* Produce */);
-      if (command) {
-        commands.push(command);
+      const action = applyOrUndo == "apply" ? "produce" /* Produce */ : "consume" /* Consume */;
+      const delta = processTxOutput2(txOutput, action);
+      if (delta && delta.key in deltas) {
+        deltas[delta.key] += delta.value;
+      } else if (delta && !(delta.key in deltas)) {
+        deltas[delta.key] = delta.value;
       }
     }
     for (const txInput of tx.inputs) {
-      const txOuput = txInput.asOutput;
-      if (txOuput) {
-        const command = processTxOutput2(txOuput, "consume" /* Consume */);
-        if (command) {
-          commands.push(command);
+      const txOutput = txInput.asOutput;
+      if (txOutput) {
+        const action = applyOrUndo == "apply" ? "consume" /* Consume */ : "produce" /* Produce */;
+        const delta = processTxOutput2(txOutput, action);
+        if (delta && delta.key in deltas) {
+          deltas[delta.key] += delta.value;
+        } else if (delta && !(delta.key in deltas)) {
+          deltas[delta.key] = delta.value;
         }
       }
     }
+  }
+  const commands = [];
+  for (const [key, value] of Object.entries(deltas)) {
+    commands.push({
+      command: "ExecuteSQL",
+      sql: `
+        INSERT INTO ${config.table} (address, balance)
+        VALUES ('${key}', ${value})
+        ON CONFLICT (address) DO UPDATE SET
+        balance = ${config.table}.balance + EXCLUDED.balance;
+        `
+    });
   }
   return commands;
 }
-function undo2(blockJson) {
-  const block = Block.fromJson(blockJson);
-  const commands = [];
-  for (const tx of block.body?.tx ?? []) {
-    for (const txOutput of tx.outputs) {
-      const command = processTxOutput2(txOutput, "consume" /* Consume */);
-      if (command) {
-        commands.push(command);
-      }
-    }
-    for (const txInput of tx.inputs) {
-      const txOuput = txInput.asOutput;
-      if (txOuput) {
-        const command = processTxOutput2(txOuput, "produce" /* Produce */);
-        if (command) {
-          commands.push(command);
-        }
-      }
-    }
-  }
-  return commands;
+function apply2(blockJson, config) {
+  return processBlock2(blockJson, config, "apply");
+}
+function undo2(blockJson, config) {
+  return processBlock2(blockJson, config, "undo");
 }
 
 // src/mod.ts
-var reducers = [
-  balance_by_address_exports,
-  balance_by_stake_key_exports
-];
-function apply3(blockJson) {
-  return reducers.flatMap((reducer) => reducer.apply(blockJson));
+var modules = {
+  "BalanceByAddress": balance_by_address_exports,
+  "BalanceByStakeAddress": balance_by_stake_address_exports
+};
+function isKeyOfModules(key) {
+  return key in modules;
 }
-function undo3(blockJson) {
-  return reducers.flatMap((reducer) => reducer.undo(blockJson));
+function apply3(blockJson, reducers) {
+  return reducers.flatMap(({ name, config }) => {
+    if (isKeyOfModules(name)) {
+      return modules[name].apply(blockJson, config);
+    }
+    throw new Error(`Module with name ${name} does not exist.`);
+  });
+}
+function undo3(blockJson, reducers) {
+  return reducers.flatMap(({ name, config }) => {
+    if (isKeyOfModules(name)) {
+      return modules[name].undo(blockJson, config);
+    }
+    throw new Error(`Module with name ${name} does not exist.`);
+  });
 }
 export {
   apply3 as apply,

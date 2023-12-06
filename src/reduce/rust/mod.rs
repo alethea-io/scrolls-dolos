@@ -6,7 +6,7 @@ use utxorpc::proto::cardano::v1::Block;
 use crate::framework::*;
 
 pub mod balance_by_address;
-pub mod balance_by_stake_key;
+pub mod balance_by_stake_address;
 
 pub struct Worker {
     reducers: Vec<Reducer>,
@@ -123,14 +123,14 @@ impl Config {
 #[serde(tag = "name")]
 pub enum ReducerConfig {
     BalanceByAddress(balance_by_address::Config),
-    BalanceByStakeKey(balance_by_stake_key::Config),
+    BalanceByStakeAddress(balance_by_stake_address::Config),
 }
 
 impl ReducerConfig {
     fn plugin(self) -> Reducer {
         match self {
             ReducerConfig::BalanceByAddress(c) => c.plugin(),
-            ReducerConfig::BalanceByStakeKey(c) => c.plugin(),
+            ReducerConfig::BalanceByStakeAddress(c) => c.plugin(),
         }
     }
 }
@@ -138,7 +138,7 @@ impl ReducerConfig {
 #[derive(Clone)]
 pub enum Reducer {
     BalanceByAddress(balance_by_address::Reducer),
-    BalanceByStakeKey(balance_by_stake_key::Reducer),
+    BalanceByStakeAddress(balance_by_stake_address::Reducer),
 }
 
 impl Reducer {
@@ -149,7 +149,7 @@ impl Reducer {
     ) -> Result<(), WorkerError> {
         match self {
             Reducer::BalanceByAddress(x) => x.apply(block, output).await,
-            Reducer::BalanceByStakeKey(x) => x.apply(block, output).await,
+            Reducer::BalanceByStakeAddress(x) => x.apply(block, output).await,
         }
     }
     pub async fn undo(
@@ -159,7 +159,7 @@ impl Reducer {
     ) -> Result<(), WorkerError> {
         match self {
             Reducer::BalanceByAddress(x) => x.undo(block, output).await,
-            Reducer::BalanceByStakeKey(x) => x.undo(block, output).await,
+            Reducer::BalanceByStakeAddress(x) => x.undo(block, output).await,
         }
     }
 }

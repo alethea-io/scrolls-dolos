@@ -1,23 +1,23 @@
+use bb8::Pool;
+use bb8_postgres::PostgresConnectionManager;
 use gasket::framework::*;
 use pallas::network::miniprotocols::Point;
-use r2d2_postgres::postgres::NoTls;
-use r2d2_postgres::r2d2;
-use r2d2_postgres::PostgresConnectionManager;
+use tokio_postgres::NoTls;
 
 use serde::Deserialize;
 
 use crate::framework::*;
 
 pub struct Worker {
-    pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    pool: Pool<PostgresConnectionManager<NoTls>>,
 }
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let manager = PostgresConnectionManager::new(stage.url.parse().or_panic()?, NoTls);
-        let pool = r2d2::Pool::builder().build(manager).or_panic()?;
-
+        let manager =
+            PostgresConnectionManager::new_from_stringlike(stage.url.clone(), NoTls).or_panic()?;
+        let pool = Pool::builder().build(manager).await.or_panic()?;
         Ok(Self { pool })
     }
 
@@ -34,20 +34,20 @@ impl gasket::framework::Worker<Stage> for Worker {
         event: &StorageEvent,
         stage: &mut Stage,
     ) -> Result<(), WorkerError> {
-        let mut conn = self.pool.get().or_restart()?;
+        let conn = self.pool.get().await.or_restart()?;
 
         match event {
             StorageEvent::RDBMS(rdbms_command) => {
                 match rdbms_command {
                     RDBMSCommand::BlockStarting(_) => {
-                        conn.execute("BEGIN", &[]).or_restart()?;
+                        conn.execute("BEGIN", &[]).await.or_restart()?;
                     }
                     RDBMSCommand::ExecuteSQL(sql) => {
-                        conn.execute(sql, &[]).or_restart()?;
+                        conn.execute(sql, &[]).await.or_restart()?;
                     }
                     RDBMSCommand::BlockFinished(point) => {
                         if let Point::Specific(slot, _hash) = point {
-                            conn.execute("COMMIT", &[]).or_restart()?;
+                            conn.execute("COMMIT", &[]).await.or_restart()?;
 
                             stage.ops_count.inc(1);
                             stage.latest_block.set(*slot as i64);
@@ -70,7 +70,7 @@ pub struct Stage {
     pub input: StorageInputPort,
 
     cursor: Cursor,
-    
+
     #[metric]
     ops_count: gasket::metrics::Counter,
 

@@ -9,8 +9,7 @@ type Delta = {
 
 type Command = {
   command: string;
-  key: string;
-  value: string;
+  sql: string;
 };
 
 enum Action {
@@ -18,22 +17,22 @@ enum Action {
   Consume = "consume",
 }
 
-function processTxOutput(txOuput: UtxoRpc.TxOutput, action: Action): Delta {
+function processTxOutput(txOuput: UtxoRpc.TxOutput, action: Action) {
   const address = C.Address.from_bytes(txOuput.address);
 
-  let addressString = "";
+  let stakeAddressString = "";
 
-  if (address.as_byron()) {
-    // @ts-ignore: checked if address.as_byron() is undefined
-    addressString = address.as_byron()?.to_base58(); 
-  } else if (address.to_bech32(undefined)) {
-    addressString = address.to_bech32(undefined);
+  if (address.as_base()) {
+    const network_id = address.network_id();
+    const stake_cred = address.as_base()?.stake_cred();
+
+    stakeAddressString = C.RewardAddress
+      // @ts-ignore: checked if address.as_base() is undefined
+      .new(network_id, stake_cred)
+      .to_address()
+      .to_bech32(undefined);
   } else {
-    const addressHex = Array.from(
-      txOuput.address,
-      (byte) => byte.toString(16).padStart(2, "0"),
-    ).join("");
-    throw new Error(`address ${addressHex} could not be parsed!`);
+    return null;
   }
 
   let value;
@@ -47,7 +46,7 @@ function processTxOutput(txOuput: UtxoRpc.TxOutput, action: Action): Delta {
   }
 
   return {
-    key: addressString,
+    key: stakeAddressString,
     value: value,
   };
 }
@@ -88,9 +87,15 @@ function processBlock(
   const commands: Command[] = [];
   for (const [key, value] of Object.entries(deltas)) {
     commands.push({
-      command: "PNCounter",
-      key: config.prefix + "." + key,
-      value: value.toString(),
+      command: "ExecuteSQL",
+      sql: (
+        `
+        INSERT INTO ${config.table} (address, balance)
+        VALUES ('${key}', ${value})
+        ON CONFLICT (address) DO UPDATE SET
+        balance = ${config.table}.balance + EXCLUDED.balance;
+        `
+      )
     });
   }
 

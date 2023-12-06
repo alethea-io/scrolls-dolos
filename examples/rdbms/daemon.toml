@@ -7,8 +7,8 @@ type = "Tip"
 
 [reduce]
 type = "Deno"
-main_module = "/home/aleksandar/Projects/scrolls/examples/rdbms/reducers/dist/mod.js"
-storage = "RDBMS"
+main_module = "/home/aleksandar/Projects/scrolls/examples/rdbms/run.js"
+storage_event = "RDBMS"
 
 [storage]
 type = "Postgres"

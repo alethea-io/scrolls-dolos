@@ -9,6 +9,11 @@ cd /path/to/dolos/examples/sync-mainnet
 cargo run daemon
 ```
 
+## Setup Postgres DB
+```bash
+docker compose up -d
+```
+
 ## Run scrolls
 ```bash
 RUST_BACKTRACE=1 cargo run --bin scrolls -- daemon --config examples/rdbms/daemon.toml

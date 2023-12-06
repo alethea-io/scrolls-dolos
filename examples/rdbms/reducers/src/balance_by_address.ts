@@ -2,10 +2,14 @@ import type { JsonValue } from "npm:@bufbuild/protobuf";
 import * as UtxoRpc from "npm:@utxorpc-web/cardano-spec";
 import { C } from "./core/mod.ts";
 
+type Delta = {
+  key: string;
+  value: bigint;
+}
+
 type Command = {
   command: string;
-  key: string;
-  value: string;
+  sql: string;
 };
 
 enum Action {
@@ -13,7 +17,7 @@ enum Action {
   Consume = "consume",
 }
 
-function processTxOutput(txOuput: UtxoRpc.TxOutput, action: Action) {
+function processTxOutput(txOuput: UtxoRpc.TxOutput, action: Action): Delta {
   const address = C.Address.from_bytes(txOuput.address);
 
   let addressString = "";
@@ -42,53 +46,66 @@ function processTxOutput(txOuput: UtxoRpc.TxOutput, action: Action) {
   }
 
   return {
-    command: "PNCounter",
     key: addressString,
-    // Must stringify to return bigint to rust
-    value: value.toString(),
+    value: value,
   };
 }
 
-export function apply(blockJson: JsonValue) {
+function processBlock(
+  blockJson: JsonValue,
+  config: Record<string, string>,
+  applyOrUndo: string,
+) {
   const block = UtxoRpc.Block.fromJson(blockJson);
 
-  const commands: Command[] = [];
+  const deltas: Record<string, bigint> = {};
   for (const tx of block.body?.tx ?? []) {
     for (const txOutput of tx.outputs) {
-      const command = processTxOutput(txOutput, Action.Produce);
-      commands.push(command);
+      const action = applyOrUndo == "apply" ? Action.Produce : Action.Consume;
+      const delta: Delta | null = processTxOutput(txOutput, action);
+      if (delta && delta.key in deltas) {
+        deltas[delta.key] += delta.value;
+      } else if (delta && !(delta.key in deltas)) {
+        deltas[delta.key] = delta.value;
+      }
     }
 
     for (const txInput of tx.inputs) {
-      const txOuput = txInput.asOutput;
-      if (txOuput) {
-        const command = processTxOutput(txOuput, Action.Consume);
-        commands.push(command);
+      const txOutput = txInput.asOutput;
+      if (txOutput) {
+        const action = applyOrUndo == "apply" ? Action.Consume : Action.Produce;
+        const delta: Delta | null = processTxOutput(txOutput, action);
+        if (delta && delta.key in deltas) {
+          deltas[delta.key] += delta.value;
+        } else if (delta && !(delta.key in deltas)) {
+          deltas[delta.key] = delta.value;
+        }
       }
     }
+  }
+
+  const commands: Command[] = [];
+  for (const [key, value] of Object.entries(deltas)) {
+    commands.push({
+      command: "ExecuteSQL",
+      sql: (
+        `
+        INSERT INTO ${config.table} (address, balance)
+        VALUES ('${key}', ${value})
+        ON CONFLICT (address) DO UPDATE SET
+        balance = ${config.table}.balance + EXCLUDED.balance;
+        `
+      )
+    });
   }
 
   return commands;
 }
 
-export function undo(blockJson: JsonValue) {
-  const block = UtxoRpc.Block.fromJson(blockJson);
+export function apply(blockJson: JsonValue, config: Record<string, string>) {
+  return processBlock(blockJson, config, "apply");
+}
 
-  const commands: Command[] = [];
-  for (const tx of block.body?.tx ?? []) {
-    for (const txOutput of tx.outputs) {
-      const command = processTxOutput(txOutput, Action.Consume);
-      commands.push(command);
-    }
-
-    for (const txInput of tx.inputs) {
-      const txOuput = txInput.asOutput;
-      if (txOuput) {
-        const command = processTxOutput(txOuput, Action.Produce);
-        commands.push(command);
-      }
-    }
-  }
-
-  return commands;
+export function undo(blockJson: JsonValue, config: Record<string, string>) {
+  return processBlock(blockJson, config, "undo");
 }

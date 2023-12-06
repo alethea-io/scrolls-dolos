@@ -444,6 +444,39 @@ impl CRDTCommand {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum RDBMSCommand {
+    BlockStarting(Point),
+    ExecuteSQL(String),
+    BlockFinished(Point),
+}
+
+impl RDBMSCommand {
+    pub fn block_starting(block: &Block) -> RDBMSCommand {
+        let header = block.header.as_ref().unwrap();
+        let point = Point::Specific(header.slot, header.hash.to_vec());
+        RDBMSCommand::BlockStarting(point)
+    }
+
+    pub fn block_finished(block: &Block) -> RDBMSCommand {
+        let header = block.header.as_ref().unwrap();
+        let point = Point::Specific(header.slot, header.hash.to_vec());
+        RDBMSCommand::BlockFinished(point)
+    }
+
+    pub fn from_json(value: &serde_json::Value) -> Result<RDBMSCommand, String> {
+        let obj = value.as_object().ok_or("Expected a JSON object")?;
+
+        match obj.get("command").and_then(JsonValue::as_str) {
+            Some("ExecuteSQL") => {
+                let sql = extract_string(obj, "sql")?;
+                Ok(RDBMSCommand::ExecuteSQL(sql))
+            }
+            _ => Err("Unknown RDBMSCommand".into()),
+        }
+    }
+}
+
 fn extract_string(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<String, String> {
     obj.get(key)
         .and_then(JsonValue::as_str)
@@ -476,13 +509,6 @@ fn extract_value(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<
         .cloned()
         .map(Value::Json)
         .ok_or_else(|| format!("Expected a value for key {}", key))
-}
-
-#[derive(Clone, Debug)]
-pub enum RDBMSCommand {
-    BlockStarting(Point),
-    ExecuteSQL(String),
-    BlockFinished(Point),
 }
 
 pub type SourceOutputPort = gasket::messaging::tokio::OutputPort<ChainEvent>;

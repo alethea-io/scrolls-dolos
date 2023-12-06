@@ -14,7 +14,7 @@ impl Config {
     pub fn plugin(self) -> super::Reducer {
         let reducer = Reducer { config: self };
 
-        super::Reducer::BalanceByStakeKey(reducer)
+        super::Reducer::BalanceByStakeAddress(reducer)
     }
 }
 
@@ -81,7 +81,7 @@ impl Reducer {
         self.config
             .key_prefix
             .clone()
-            .unwrap_or_else(|| "balance_by_stake_key".to_string())
+            .unwrap_or_else(|| "balance_by_stake_address".to_string())
     }
 
     async fn process_txo(
@@ -94,8 +94,8 @@ impl Reducer {
 
         match address {
             Address::Shelley(shelley) => {
-                let stake_key = shelley.delegation().to_bech32().unwrap();
-                let key = format!("{}.{}", self.key_prefix(), stake_key.to_string());
+                let stake_address = shelley.delegation().to_bech32().unwrap();
+                let key = format!("{}.{}", self.key_prefix(), stake_address.to_string());
 
                 let value = match operation {
                     TxOperation::Consumed => -1 * txo.coin as i64,

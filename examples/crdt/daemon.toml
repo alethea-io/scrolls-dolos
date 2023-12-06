@@ -7,8 +7,8 @@ type = "Tip"
 
 [reduce]
 type = "Deno"
-main_module = "/home/aleksandar/Projects/scrolls/examples/crdt/reducers/dist/mod.js"
-storage = "CRDT"
+main_module = "/home/aleksandar/Projects/scrolls/examples/crdt/run.js"
+storage_event = "CRDT"
 
 [storage]
 type = "Redis"

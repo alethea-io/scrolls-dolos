@@ -169,14 +169,18 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let method = match unit {
                     ChainEvent::Apply(_, _) => "apply",
                     ChainEvent::Undo(_, _) => "undo",
-                    _ => unreachable!(), // We've already matched these variants
+                    _ => unreachable!(),
+                };
+
+                let event = match stage.storage_event.as_str() {
+                    "CRDT" => StorageEvent::CRDT(CRDTCommand::block_starting(block)),
+                    "RDBMS" => StorageEvent::RDBMS(RDBMSCommand::block_starting(block)),
+                    _ => return Err(WorkerError::Panic),
                 };
 
                 stage
                     .output
-                    .send(gasket::messaging::Message::from(StorageEvent::CRDT(
-                        CRDTCommand::block_starting(block),
-                    )))
+                    .send(gasket::messaging::Message::from(event))
                     .await
                     .or_panic()?;
 
@@ -186,21 +190,37 @@ impl gasket::framework::Worker<Stage> for Worker {
                     match reduced {
                         serde_json::Value::Array(items) => {
                             for item in items {
+                                let event = match stage.storage_event.as_str() {
+                                    "CRDT" => {
+                                        StorageEvent::CRDT(CRDTCommand::from_json(&item).unwrap())
+                                    }
+                                    "RDBMS" => {
+                                        StorageEvent::RDBMS(RDBMSCommand::from_json(&item).unwrap())
+                                    }
+                                    _ => return Err(WorkerError::Panic),
+                                };
+
                                 stage
                                     .output
-                                    .send(gasket::messaging::Message::from(StorageEvent::CRDT(
-                                        CRDTCommand::from_json(&item).unwrap(),
-                                    )))
+                                    .send(gasket::messaging::Message::from(event))
                                     .await
                                     .or_panic()?;
                             }
                         }
                         _ => {
+                            let event = match stage.storage_event.as_str() {
+                                "CRDT" => {
+                                    StorageEvent::CRDT(CRDTCommand::from_json(&reduced).unwrap())
+                                }
+                                "RDBMS" => {
+                                    StorageEvent::RDBMS(RDBMSCommand::from_json(&reduced).unwrap())
+                                }
+                                _ => return Err(WorkerError::Panic),
+                            };
+
                             stage
                                 .output
-                                .send(gasket::messaging::Message::from(StorageEvent::CRDT(
-                                    CRDTCommand::from_json(&reduced).unwrap(),
-                                )))
+                                .send(gasket::messaging::Message::from(event))
                                 .await
                                 .or_panic()?;
                         }
@@ -209,11 +229,15 @@ impl gasket::framework::Worker<Stage> for Worker {
                     stage.ops_count.inc(1);
                 }
 
+                let event = match stage.storage_event.as_str() {
+                    "CRDT" => StorageEvent::CRDT(CRDTCommand::block_finished(block)),
+                    "RDBMS" => StorageEvent::RDBMS(RDBMSCommand::block_finished(block)),
+                    _ => return Err(WorkerError::Panic),
+                };
+
                 stage
                     .output
-                    .send(gasket::messaging::Message::from(StorageEvent::CRDT(
-                        CRDTCommand::block_finished(block),
-                    )))
+                    .send(gasket::messaging::Message::from(event))
                     .await
                     .or_panic()?;
             }
@@ -240,14 +264,14 @@ pub struct Stage {
 #[derive(Deserialize)]
 pub struct Config {
     main_module: String,
-    storage: String,
+    storage_event: String,
 }
 
 impl Config {
     pub fn bootstrapper(self, _ctx: &Context) -> Result<Stage, Error> {
         let stage = Stage {
             main_module: PathBuf::from(self.main_module),
-            storage_event: self.storage,
+            storage_event: self.storage_event,
             input: Default::default(),
             output: Default::default(),
             ops_count: Default::default(),
