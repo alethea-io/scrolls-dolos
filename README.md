@@ -12,7 +12,12 @@ The Dolos source stage from Oura was integrated into this implementation enablin
 
 ### 2. Ability to write reducers in Typescript / Javascript
 
-This implementation uses Rust's `deno_runtime` library to load reducers as Javascript plugins. Reducers with business logic for block transformation can be written in Typescript, bundled into Javascript and loaded into Scrolls. The responsibility of the Scrolls project is limited to feeding data to the transformation logic and storing the processed results.
+This implementation uses Rust's `deno_runtime` library to load reducers as Javascript plugins. Reducers describing block transformations can be written in Typescript, bundled into Javascript and loaded into Scrolls. This decouples the Scrolls codebase from the reducer codebase and has several benefits. 
+
+1. Scrolls no longer has to be recompiled to add new reducers
+2. Typescript / Javascript is a much more accessible language for developers enabling reducers to be written by a larger community
+
+Ultimately, the Scrolls codebase is relegated to feeding data to the transformation logic and storing the processed results.
 
 ### 3. Ability to store data in either a Redis or a SQL database
 
