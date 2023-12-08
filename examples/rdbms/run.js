@@ -4,12 +4,14 @@ const config = [
   {
     name: "BalanceByAddress",
     config: {
+      addressType: "payment",
       table: "balance_by_address",
     }
   },
   {
-    name: "BalanceByStakeAddress",
+    name: "BalanceByAddress",
     config: {
+      addressType: "stake",
       table: "balance_by_stake_address",
     }
   },

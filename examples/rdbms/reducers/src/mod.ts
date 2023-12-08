@@ -1,10 +1,8 @@
 import type { JsonValue } from "npm:@bufbuild/protobuf";
 import * as BalanceByAddress from './balance_by_address.ts';
-import * as BalanceByStakeAddress from './balance_by_stake_address.ts';
 
 const modules = {
   "BalanceByAddress": BalanceByAddress,
-  "BalanceByStakeAddress": BalanceByStakeAddress,
 }
 
 type Reducer = {

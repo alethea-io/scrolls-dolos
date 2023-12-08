@@ -3730,19 +3730,34 @@ await Promise.all([
 ]);
 
 // src/balance_by_address.ts
-function processTxOutput(txOuput, action) {
+function processTxOutput(txOuput, addressType, action) {
   const address = C.Address.from_bytes(txOuput.address);
-  let addressString = "";
-  if (address.as_byron()) {
-    addressString = address.as_byron()?.to_base58();
-  } else if (address.to_bech32(void 0)) {
-    addressString = address.to_bech32(void 0);
-  } else {
-    const addressHex = Array.from(
-      txOuput.address,
-      (byte) => byte.toString(16).padStart(2, "0")
-    ).join("");
-    throw new Error(`address ${addressHex} could not be parsed!`);
+  let key;
+  switch (addressType) {
+    case "payment":
+      if (address.as_byron()) {
+        key = address.as_byron()?.to_base58();
+      } else if (address.to_bech32(void 0)) {
+        key = address.to_bech32(void 0);
+      } else {
+        const addressHex = Array.from(
+          txOuput.address,
+          (byte) => byte.toString(16).padStart(2, "0")
+        ).join("");
+        throw new Error(`address "${addressHex}" could not be parsed!`);
+      }
+      break;
+    case "stake":
+      if (address.as_base()) {
+        const network_id = address.network_id();
+        const stake_cred = address.as_base()?.stake_cred();
+        key = C.RewardAddress.new(network_id, stake_cred).to_address().to_bech32(void 0);
+      } else {
+        return null;
+      }
+      break;
+    default:
+      throw new Error(`address type "${addressType}" not implemented`);
   }
   let value;
   switch (action) {
@@ -3753,144 +3768,97 @@ function processTxOutput(txOuput, action) {
       value = txOuput.coin;
       break;
   }
-  return {
-    key: addressString,
-    value
-  };
+  return { key, value };
 }
-function processBlock(blockJson, config, applyOrUndo) {
+function processBlock(blockJson, config, method) {
   const block = Block.fromJson(blockJson);
+  const addressType = config.addressType;
+  const table = config.table;
   const deltas = {};
   for (const tx of block.body?.tx ?? []) {
     for (const txOutput of tx.outputs) {
-      const action = applyOrUndo == "apply" ? "produce" /* Produce */ : "consume" /* Consume */;
-      const delta = processTxOutput(txOutput, action);
-      if (delta && delta.key in deltas) {
-        deltas[delta.key] += delta.value;
-      } else if (delta && !(delta.key in deltas)) {
-        deltas[delta.key] = delta.value;
+      let action;
+      switch (method) {
+        case "apply" /* Apply */:
+          action = "produce" /* Produce */;
+          break;
+        case "undo" /* Undo */:
+          action = "consume" /* Consume */;
+          break;
+      }
+      const delta = processTxOutput(txOutput, addressType, action);
+      if (delta) {
+        if (delta.key in deltas) {
+          deltas[delta.key] += delta.value;
+        } else {
+          deltas[delta.key] = delta.value;
+        }
       }
     }
     for (const txInput of tx.inputs) {
       const txOutput = txInput.asOutput;
       if (txOutput) {
-        const action = applyOrUndo == "apply" ? "consume" /* Consume */ : "produce" /* Produce */;
-        const delta = processTxOutput(txOutput, action);
-        if (delta && delta.key in deltas) {
-          deltas[delta.key] += delta.value;
-        } else if (delta && !(delta.key in deltas)) {
-          deltas[delta.key] = delta.value;
+        let action;
+        switch (method) {
+          case "apply" /* Apply */:
+            action = "consume" /* Consume */;
+            break;
+          case "undo" /* Undo */:
+            action = "produce" /* Produce */;
+            break;
+        }
+        const delta = processTxOutput(txOutput, addressType, action);
+        if (delta) {
+          if (delta.key in deltas) {
+            deltas[delta.key] += delta.value;
+          } else {
+            deltas[delta.key] = delta.value;
+          }
         }
       }
     }
   }
-  const commands = [];
-  for (const [key, value] of Object.entries(deltas)) {
-    commands.push({
+  const keys = Object.keys(deltas);
+  const values = Object.values(deltas);
+  if (keys.length > 0) {
+    const inserted = {
       command: "ExecuteSQL",
       sql: `
-        INSERT INTO ${config.table} (address, balance)
-        VALUES ('${key}', ${value})
-        ON CONFLICT (address) DO UPDATE SET
-        balance = ${config.table}.balance + EXCLUDED.balance;
-        `
-    });
+        INSERT INTO ${table} (address, balance)
+        SELECT unnest(ARRAY[${keys.map((key) => `'${key}'`).join(",")}]) AS address,
+               unnest(ARRAY[${values.join(",")}]) AS balance
+        ON CONFLICT (address) DO UPDATE
+        SET balance = ${table}.balance + EXCLUDED.balance
+      `
+    };
+    const deleted = {
+      command: "ExecuteSQL",
+      sql: `
+        DELETE FROM ${table}
+        WHERE address IN (${keys.map((key) => `'${key}'`).join(",")})
+          AND balance = 0
+      `
+    };
+    return [inserted, deleted];
+  } else {
+    return [];
   }
-  return commands;
 }
 function apply(blockJson, config) {
-  return processBlock(blockJson, config, "apply");
+  return processBlock(blockJson, config, "apply" /* Apply */);
 }
 function undo(blockJson, config) {
-  return processBlock(blockJson, config, "undo");
-}
-
-// src/balance_by_stake_address.ts
-var balance_by_stake_address_exports = {};
-__export(balance_by_stake_address_exports, {
-  apply: () => apply2,
-  undo: () => undo2
-});
-function processTxOutput2(txOuput, action) {
-  const address = C.Address.from_bytes(txOuput.address);
-  let stakeAddressString = "";
-  if (address.as_base()) {
-    const network_id = address.network_id();
-    const stake_cred = address.as_base()?.stake_cred();
-    stakeAddressString = C.RewardAddress.new(network_id, stake_cred).to_address().to_bech32(void 0);
-  } else {
-    return null;
-  }
-  let value;
-  switch (action) {
-    case "consume" /* Consume */:
-      value = -txOuput.coin;
-      break;
-    case "produce" /* Produce */:
-      value = txOuput.coin;
-      break;
-  }
-  return {
-    key: stakeAddressString,
-    value
-  };
-}
-function processBlock2(blockJson, config, applyOrUndo) {
-  const block = Block.fromJson(blockJson);
-  const deltas = {};
-  for (const tx of block.body?.tx ?? []) {
-    for (const txOutput of tx.outputs) {
-      const action = applyOrUndo == "apply" ? "produce" /* Produce */ : "consume" /* Consume */;
-      const delta = processTxOutput2(txOutput, action);
-      if (delta && delta.key in deltas) {
-        deltas[delta.key] += delta.value;
-      } else if (delta && !(delta.key in deltas)) {
-        deltas[delta.key] = delta.value;
-      }
-    }
-    for (const txInput of tx.inputs) {
-      const txOutput = txInput.asOutput;
-      if (txOutput) {
-        const action = applyOrUndo == "apply" ? "consume" /* Consume */ : "produce" /* Produce */;
-        const delta = processTxOutput2(txOutput, action);
-        if (delta && delta.key in deltas) {
-          deltas[delta.key] += delta.value;
-        } else if (delta && !(delta.key in deltas)) {
-          deltas[delta.key] = delta.value;
-        }
-      }
-    }
-  }
-  const commands = [];
-  for (const [key, value] of Object.entries(deltas)) {
-    commands.push({
-      command: "ExecuteSQL",
-      sql: `
-        INSERT INTO ${config.table} (address, balance)
-        VALUES ('${key}', ${value})
-        ON CONFLICT (address) DO UPDATE SET
-        balance = ${config.table}.balance + EXCLUDED.balance;
-        `
-    });
-  }
-  return commands;
-}
-function apply2(blockJson, config) {
-  return processBlock2(blockJson, config, "apply");
-}
-function undo2(blockJson, config) {
-  return processBlock2(blockJson, config, "undo");
+  return processBlock(blockJson, config, "undo" /* Undo */);
 }
 
 // src/mod.ts
 var modules = {
-  "BalanceByAddress": balance_by_address_exports,
-  "BalanceByStakeAddress": balance_by_stake_address_exports
+  "BalanceByAddress": balance_by_address_exports
 };
 function isKeyOfModules(key) {
   return key in modules;
 }
-function apply3(blockJson, reducers) {
+function apply2(blockJson, reducers) {
   return reducers.flatMap(({ name, config }) => {
     if (isKeyOfModules(name)) {
       return modules[name].apply(blockJson, config);
@@ -3898,7 +3866,7 @@ function apply3(blockJson, reducers) {
     throw new Error(`Module with name ${name} does not exist.`);
   });
 }
-function undo3(blockJson, reducers) {
+function undo2(blockJson, reducers) {
   return reducers.flatMap(({ name, config }) => {
     if (isKeyOfModules(name)) {
       return modules[name].undo(blockJson, config);
@@ -3907,6 +3875,6 @@ function undo3(blockJson, reducers) {
   });
 }
 export {
-  apply3 as apply,
-  undo3 as undo
+  apply2 as apply,
+  undo2 as undo
 };
